@@ -12,6 +12,7 @@ mp3 + 앨범 커버 + 구간을 넣으면 LP 회전 · 스펙트럼 · 커버 �
 open -a "Google Chrome" index.html   # 서버 불필요, file://로 동작
 ```
 
+- 배포: GitHub Pages(`main` 브랜치 루트) → https://chojja7188.github.io/musicismylife/ . `git push`하면 1~2분 뒤 반영. 핸드폰은 이 주소로 쓴다(800px 이하에서 세로 배치).
 - 의존성 없음. 브라우저 기본 API만(Web Audio, Canvas, MediaRecorder). npm/빌드 없음 — 이 상태를 유지할 것.
 - 비주얼은 형제 프로젝트 `../dj/overlay.html`(방송 오버레이)에서 가져왔다: `palette()`, `bands()`, 비트 감지, LP/글로우/링.
 
