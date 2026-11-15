@@ -95,6 +95,7 @@ const FONT = '-apple-system, "Apple SD Gothic Neo", system-ui, sans-serif';
 
 // ── 오디오: 모든 곡 → master → (스피커, 분석기, 녹화) ──
 const ac = new AudioContext();
+if (navigator.audioSession) navigator.audioSession.type = 'playback'; // 아이폰 무음 스위치가 켜져 있어도 소리 나게
 const master = ac.createGain();
 const analyser = ac.createAnalyser(); analyser.fftSize = 1024; analyser.smoothingTimeConstant = 0.5;
 const recDest = ac.createMediaStreamDestination();
@@ -137,7 +138,15 @@ function prep(img) {
   [v.c1, v.c2] = img ? palette(img) : [[0, 0, 88], [0, 0, 62]];
 
   let x; [v.bg, x] = canvas(W, H);
-  if (img) { x.filter = 'blur(60px) brightness(.3) saturate(1.4)'; const S = H * 1.2; drawCoverFit(x, img, (W - S) / 2, (H - S) / 2, S, S); }
+  if (img) {
+    const S = H * 1.2;
+    if ('filter' in x) { x.filter = 'blur(60px) brightness(.3) saturate(1.4)'; drawCoverFit(x, img, (W - S) / 2, (H - S) / 2, S, S); }
+    else { // 아이폰 iOS 17 이하는 ctx.filter가 없음 → 작게 그렸다 키워서 흐리게 + 어둡게
+      const [t, tx] = canvas(16, 16); drawCoverFit(tx, img, 0, 0, 16, 16);
+      x.imageSmoothingQuality = 'high'; x.drawImage(t, (W - S) / 2, (H - S) / 2, S, S);
+      x.fillStyle = 'rgba(0,0,0,.68)'; x.fillRect(0, 0, W, H);
+    }
+  }
   else { x.fillStyle = '#0b0b0b'; x.fillRect(0, 0, W, H); }
 
   [v.cover, x] = canvas(C, C);
