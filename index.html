@@ -348,11 +348,21 @@ $('#rec').onclick = async () => {
 
 // ── 화면 ──
 const N = 48, lvl = new Float32Array(N);
-function bands(v) { // dj/overlay.html과 같은 대역 나누기: 빠른 상승 / 느린 하강
+const spectrumDb = new Float32Array(analyser.frequencyBinCount);
+function spectrumTarget(db, lo, hi) {
+  // byte 데이터는 기본 -30dB에서 이미 255에 도달한다. 실제 dB를 써서 -12dB까지 여유를 둔다.
+  let energy = 0;
+  for (let k = lo; k < hi; k++) {
+    const level = Math.max(0, Math.min(1, (db(k) + 72) / 60));
+    energy += level * level;
+  }
+  return Math.pow(Math.sqrt(energy / (hi - lo)), 1.8) * .9;
+}
+function bands(db) {
   for (let j = 0; j < N; j++) {
     const lo = Math.floor(2 + Math.pow(j / N, 1.7) * 220), hi = Math.floor(2 + Math.pow((j + 1) / N, 1.7) * 220) + 1;
-    let m = 0; for (let k = lo; k < hi; k++) m = Math.max(m, v(k));
-    lvl[j] = Math.max(Math.pow(m, 1.6) * (1 + j / N * 0.8), lvl[j] * 0.86);
+    const target = spectrumTarget(db, lo, hi);
+    lvl[j] += (target - lvl[j]) * (target > lvl[j] ? .55 : .22);
   }
 }
 function wrap(text, maxW, maxLines) { // 띄어쓰기 기준 줄바꿈, 넘치면 …
@@ -424,12 +434,18 @@ function fx(tr, a) { // 커버 뒤 글로우 + 스펙트럼 (곡 색깔로)
   ctx.restore();
 }
 
-function outro(p, u) { // 마지막 곡 위로 어두운 막 + 곡 목록이 위에서부터 하나씩
-  const n = p.tracks.length, h = Math.min(200, 1300 / n), th = h * 0.78, y0 = 440 + (1300 - n * h) / 2;
-  ctx.fillStyle = `rgba(0,0,0,${0.5 * Math.min(1, u / 0.6)})`; ctx.fillRect(0, 0, W, H);
+function outroLayout(n) {
+  const h = 1250 / Math.max(5, n);
+  return {h, th: h * .74, y0: 440};
+}
+function outro(p, u) { // 5곡 기준의 별도 불투명 페이지가 오른쪽에서 들어온다.
+  const {h, th, y0} = outroLayout(p.tracks.length);
+  const k = Math.max(0, Math.min(1, u / .45)), ease = 1 - Math.pow(1 - k, 3);
+  ctx.save(); ctx.translate(W * (1 - ease), 0);
+  ctx.fillStyle = '#101012'; ctx.fillRect(0, 0, W, H);
   ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
   p.tracks.forEach((tr, j) => {
-    const a = Math.max(0, Math.min(1, (u - 0.4 - j * 0.18) / 0.4)); if (!a) return;
+    const a = Math.max(0, Math.min(1, (u - 0.12 - j * 0.1) / 0.35)); if (!a) return;
     const y = y0 + j * h + (1 - a) * (1 - a) * -40, cy = y + h / 2;
     ctx.save(); ctx.globalAlpha = a;
     ctx.font = `700 ${Math.round(th * 0.32)}px ${FONT}`; ctx.fillStyle = hsl(tr.vis.c1, 0.9);
@@ -443,6 +459,7 @@ function outro(p, u) { // 마지막 곡 위로 어두운 막 + 곡 목록이 위
     ctx.restore();
   });
   ctx.textBaseline = 'alphabetic';
+  ctx.restore();
 }
 
 function frame(now) {
@@ -457,7 +474,8 @@ function frame(now) {
   bassS += (bass - bassS) * 0.5; bassAvg += (bass - bassAvg) * 0.02;
   if (bass > bassAvg * 1.25 + 0.06 && bass > 0.3 && now - lastBeat > 200) { lastBeat = now; kick = 1; rings.push({ r: 0, a: 0.9, c: null }); }
   kick *= 0.88;
-  bands(v);
+  analyser.getFloatFrequencyData(spectrumDb);
+  bands(i => spectrumDb[i]);
   spin += ((playing ? 1 : 0) - spin) * 0.03; out += (1 - out) * 0.06; rot += spin * 200 / 60;
 
   ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
@@ -480,10 +498,10 @@ function frame(now) {
     ctx.strokeStyle = hsl(g.c, g.a); ctx.lineWidth = C * 0.012;
     ctx.beginPath(); ctx.arc(CX + C / 2, CY + C / 2, C * 0.5 + g.r, 0, 7); ctx.stroke();
   }
-  const uo = t - (p.total - p.O), ko = p.O ? Math.max(0, Math.min(1, uo / 0.6)) : 0; // 목록 화면 전환 0→1
-  if (prev) fg(prev, i - 1, p.tracks.length, t, (1 - ease) * (1 - ko), -ease);
-  fg(cur, i, p.tracks.length, t, ease * (1 - ko), 1 - ease);
-  if (ko > 0) outro(p, uo);
+  const uo = t - (p.total - p.O), ko = p.O ? Math.max(0, Math.min(1, uo / .45)) : 0; // 목록 페이지 전환 0→1
+  if (prev) fg(prev, i - 1, p.tracks.length, t, 1 - ease, -ease);
+  fg(cur, i, p.tracks.length, t, ease, 1 - ease);
+  if (p.O && uo >= 0) outro(p, uo);
 
   // 시리즈 제목은 고정, 번호만 바뀜
   const series = $('#series').value.trim();
