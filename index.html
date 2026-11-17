@@ -318,12 +318,17 @@ $('#stop').onclick = () => { if (recorder) { recorder.cancelled = true; recorder
 
 // ── 녹화: 캔버스 화면 + master 소리 → mp4 (안 되면 webm) ──
 let recorder = null;
+function paintBlack() {
+  ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.globalAlpha = 1;
+  ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H); ctx.restore();
+}
 $('#rec').onclick = async () => {
   const p = plan();
   if (p.err || !p.tracks.length) return status(p.err || '곡을 추가해 주세요', true);
   if (recorder) return;
   if (p.total > 60 && !confirm(`총 ${fmt(p.total)}로 1분이 넘어요. 그래도 만들까요?`)) return status(`총 ${p.total.toFixed(1)}초 · 1분이 넘어요. 구간을 줄여 주세요`, true);
   const mime = ['video/mp4;codecs=avc1.640028,mp4a.40.2', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm'].find(m => MediaRecorder.isTypeSupported(m)) || '';
+  paintBlack(); // captureStream 생성 순간에도 미리보기 대신 검정 프레임을 캡처
   const stream = new MediaStream([...cv.captureStream(30).getVideoTracks(), ...recDest.stream.getAudioTracks()]);
   const chunks = [];
   recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 12e6, audioBitsPerSecond: 256e3 });
@@ -341,7 +346,7 @@ $('#rec').onclick = async () => {
   await ac.resume();
   // timeslice/requestData는 Chrome MP4를 라이브 모드로 만들어 길이·탐색 색인을 누락시킨다.
   // 다운로드용 파일은 stop() 때 전체를 확정한다 (ADR 0007).
-  play(p); recorder.start();
+  play(p); paintBlack(); recorder.start();
   $('#rec').textContent = '● 녹화 중…';
   status(`녹화 중… ${p.total.toFixed(1)}초 동안 이 탭을 띄워 두세요`);
   const timer = setTimeout(() => recorder && recorder.stop(), (p.total + 0.6) * 1000);
@@ -499,6 +504,8 @@ function outro(p, u) { // 5곡 기준의 별도 불투명 페이지가 오른쪽
 
 function frame(now) {
   requestAnimationFrame(frame);
+  // ac.resume()를 기다리는 동안 미리보기 화면이 캡처 스트림에 다시 들어가지 않게 한다.
+  if (recorder?.state === 'inactive') { paintBlack(); return; }
   const p = live || idle, playing = !!live;
   const t = playing ? ac.currentTime - live.t0 : 0;
   if (playing && t > live.total + 0.3 && !recorder) stop();

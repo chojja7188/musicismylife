@@ -23,13 +23,21 @@ const injection = `<script>
       const blob = await (await fetch(this.href)).blob();
       await fetch('/video', {method:'POST', body:blob});
       const v = document.createElement('video'); v.muted = true; v.preload = 'auto';
-      const ready = new Promise((ok,no) => {v.onloadedmetadata=ok;v.onerror=()=>no(new Error('video load failed'));});
+      const ready = new Promise((ok,no) => {v.onloadeddata=ok;v.onerror=()=>no(new Error('video load failed'));});
       v.src = this.href; document.body.append(v); await ready;
+      const sample = document.createElement('canvas'); sample.width=32; sample.height=32;
+      const x = sample.getContext('2d');
+      const brightness = () => {x.drawImage(v,0,0,32,32);return Math.max(...x.getImageData(0,0,32,32).data.filter((_,i)=>i%4!==3));};
+      const firstBrightness = brightness();
       const seek = new Promise((ok,no) => {v.onseeked=ok;v.onerror=()=>no(new Error('seek failed'));});
       v.currentTime = 5; await seek;
-      await fetch('/result', {method:'POST', body:JSON.stringify({duration:v.duration, currentTime:v.currentTime, type:blob.type})});
+      await fetch('/result', {method:'POST', body:JSON.stringify({duration:v.duration, currentTime:v.currentTime, type:blob.type, firstBrightness, seekBrightness:brightness()})});
     } catch(e) {await fetch('/error', {method:'POST',body:String(e.stack)});}
   };
+  $('#play').click(); await new Promise(r=>setTimeout(r,500));
+  // 오디오 준비가 늦어도 대기 중 미리보기가 첫 프레임으로 들어가면 안 된다.
+  const resume = ac.resume.bind(ac);
+  ac.resume = async () => {await new Promise(r=>setTimeout(r,250));return resume();};
   $('#rec').click();
 })().catch(e => fetch('/error', {method:'POST',body:String(e.stack)}));
 </script>`;
@@ -65,7 +73,7 @@ function checkMp4(buf) {
 let chrome, timer, closed=false;
 function finish(error) {
   if(closed)return;closed=true;clearTimeout(timer);chrome?.kill();server.close();
-  if(error){console.error(error);process.exitCode=1;}else console.log('실제 MP4 전체 길이·탐색 색인·5초 seek 통과');
+  if(error){console.error(error);process.exitCode=1;}else console.log('실제 MP4 검정 첫 프레임·전체 길이·탐색 색인·5초 seek 통과');
   console.log('검증 파일: '+path.join(tmp,'recording.mp4'));
 }
 const server=http.createServer(async(req,res)=>{
@@ -77,6 +85,8 @@ const server=http.createServer(async(req,res)=>{
     else if(req.url==='/result') {
       const report=JSON.parse(body);assert.equal(report.type,'video/mp4');
       assert.ok(report.duration>7 && report.duration<9,'browser full duration');assert.ok(Math.abs(report.currentTime-5)<.1,'browser seeks beyond 3 seconds');
+      assert.ok(report.firstBrightness<=4,'first decoded frame must be black, not the preview');
+      assert.ok(report.seekBrightness>20,'later frames must still show the music screen');
       checkMp4(fs.readFileSync(path.join(tmp,'recording.mp4')));finish();
     }
   } catch(error){if(!res.headersSent)res.end('error');finish(error);}
