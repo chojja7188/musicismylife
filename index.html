@@ -376,6 +376,41 @@ function wrap(text, maxW, maxLines) { // 띄어쓰기 기준 줄바꿈, 넘치�
   return out.map(l => { while (ctx.measureText(l).width > maxW && l.length > 1) l = l.slice(0, -2) + '…'; return l; });
 }
 
+// 제목은 읽을 수 있는 최소 크기까지만 줄이고, 그래도 길면 두 줄로 표시.
+function fitTitle(text, width, maxSize, minSize) {
+  text = text.trim().replace(/\s+/g, ' ') || '제목';
+  const font = size => { ctx.font = `800 ${size}px ${FONT}`; };
+  font(maxSize);
+  const measured = ctx.measureText(text).width;
+  if (measured <= width) return {size: maxSize, lines: [text]};
+  font(minSize);
+  if (ctx.measureText(text).width <= width) {
+    let size = Math.max(minSize, Math.floor(maxSize * width / measured));
+    font(size);
+    while (size > minSize && ctx.measureText(text).width > width) font(--size);
+    return {size, lines: [text]};
+  }
+  const size = Math.max(minSize, Math.round(maxSize * .85)); font(size);
+  const lines = []; let rest = Array.from(text);
+  while (rest.length && lines.length < 2) {
+    let count = 0;
+    while (count < rest.length && ctx.measureText(rest.slice(0, count + 1).join('')).width <= width) count++;
+    count = Math.max(1, count);
+    if (!lines.length && count < rest.length) {
+      const space = rest.slice(0, count).lastIndexOf(' ');
+      if (space > count / 2) count = space;
+    }
+    let line = rest.splice(0, count).join('').trim();
+    while (rest[0] === ' ') rest.shift();
+    if (lines.length === 1 && rest.length) {
+      while (line && ctx.measureText(line + '…').width > width) line = Array.from(line).slice(0, -1).join('');
+      line += '…';
+    }
+    lines.push(line);
+  }
+  return {size, lines};
+}
+
 let rot = 0, spin = 0, out = 0, bassS = 0, bassAvg = 0, kick = 0, lastBeat = 0;
 
 function fg(tr, idx, count, t, a, slide) {
@@ -397,9 +432,10 @@ function fg(tr, idx, count, t, a, slide) {
 
   // 제목 · 가수
   ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
-  ctx.font = `800 76px ${FONT}`; ctx.fillStyle = '#fff';
+  const title = fitTitle(tr.title || '제목', 840, 76, 56);
+  ctx.fillStyle = '#fff';
   let y = 1170;
-  for (const l of wrap(tr.title || '제목', 840, 2)) { ctx.fillText(l, 120, y); y += 90; }
+  for (const l of title.lines) { ctx.fillText(l, 120, y); y += title.size * 1.18; }
   ctx.font = `500 46px ${FONT}`; ctx.fillStyle = hsl(v.c1, 0.9);
   ctx.fillText(wrap(tr.artist || '', 840, 1)[0] || '', 120, y + 4);
 
@@ -452,10 +488,12 @@ function outro(p, u) { // 5곡 기준의 별도 불투명 페이지가 오른쪽
     ctx.fillText(String(j + 1).padStart(2, '0'), 100, cy);
     ctx.drawImage(tr.vis.cover, 190, cy - th / 2, th, th);
     const x = 190 + th + 36, mw = 960 - x;
-    ctx.font = `800 ${Math.round(th * 0.3)}px ${FONT}`; ctx.fillStyle = '#fff';
-    ctx.fillText(wrap(tr.title || '제목', mw, 1)[0], x, cy - th * 0.18);
+    const title = fitTitle(tr.title || '제목', mw, Math.round(th * .3), Math.round(th * .23));
+    ctx.fillStyle = '#fff';
+    const ty = cy - th * .18 - (title.lines.length - 1) * title.size * .6;
+    title.lines.forEach((line, i) => ctx.fillText(line, x, ty + i * title.size * 1.2));
     ctx.font = `500 ${Math.round(th * 0.22)}px ${FONT}`; ctx.fillStyle = 'rgba(255,255,255,.6)';
-    ctx.fillText(wrap(tr.artist || '', mw, 1)[0] || '', x, cy + th * 0.2);
+    ctx.fillText(wrap(tr.artist || '', mw, 1)[0] || '', x, Math.max(cy + th * .2, ty + (title.lines.length - 1) * title.size * 1.2 + title.size * .95));
     ctx.restore();
   });
   ctx.textBaseline = 'alphabetic';
