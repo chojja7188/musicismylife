@@ -65,6 +65,8 @@ node tests/titles.cjs
 git diff --check
 ```
 
+실제 녹화 회귀 검사는 Chrome을 설치한 환경에서 `node tests/recording.cjs`로 실행합니다. MP4 길이 정보·탐색 색인·5초 지점 이동을 확인하며, `CHROME_BIN`으로 Chrome 경로를 지정할 수 있습니다.
+
 GitHub Pages는 `main` 브랜치 루트를 배포합니다. `git push origin main` 후 GitHub Actions의 배포 성공을 확인합니다. 보통 1~2분 걸립니다.
 
 - [개발 시 주의사항](AGENTS.md)

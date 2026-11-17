@@ -339,7 +339,9 @@ $('#rec').onclick = async () => {
     status(`저장했어요: ${a.download}`);
   };
   await ac.resume();
-  play(p); recorder.start(1000);
+  // timeslice/requestData는 Chrome MP4를 라이브 모드로 만들어 길이·탐색 색인을 누락시킨다.
+  // 다운로드용 파일은 stop() 때 전체를 확정한다 (ADR 0007).
+  play(p); recorder.start();
   $('#rec').textContent = '● 녹화 중…';
   status(`녹화 중… ${p.total.toFixed(1)}초 동안 이 탭을 띄워 두세요`);
   const timer = setTimeout(() => recorder && recorder.stop(), (p.total + 0.6) * 1000);
