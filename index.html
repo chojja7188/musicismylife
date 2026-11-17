@@ -376,7 +376,7 @@ function wrap(text, maxW, maxLines) { // 띄어쓰기 기준 줄바꿈, 넘치�
   return out.map(l => { while (ctx.measureText(l).width > maxW && l.length > 1) l = l.slice(0, -2) + '…'; return l; });
 }
 
-let rot = 0, spin = 0, out = 0, bassS = 0, bassAvg = 0, kick = 0, lastBeat = 0, rings = [];
+let rot = 0, spin = 0, out = 0, bassS = 0, bassAvg = 0, kick = 0, lastBeat = 0;
 
 function fg(tr, idx, count, t, a, slide) {
   if (a <= 0) return;
@@ -472,7 +472,7 @@ function frame(now) {
   const v = i => Math.min(1, freq[i] / 255 * 1.3);
   const bass = (v(1) + v(2) + v(3) + v(4)) / 4;
   bassS += (bass - bassS) * 0.5; bassAvg += (bass - bassAvg) * 0.02;
-  if (bass > bassAvg * 1.25 + 0.06 && bass > 0.3 && now - lastBeat > 200) { lastBeat = now; kick = 1; rings.push({ r: 0, a: 0.9, c: null }); }
+  if (bass > bassAvg * 1.25 + 0.06 && bass > 0.3 && now - lastBeat > 200) { lastBeat = now; kick = 1; }
   kick *= 0.88;
   analyser.getFloatFrequencyData(spectrumDb);
   bands(i => spectrumDb[i]);
@@ -491,13 +491,6 @@ function frame(now) {
   ctx.globalAlpha = ease; ctx.drawImage(cur.vis.bg, 0, 0); ctx.globalAlpha = 1;
   if (prev) fx(prev, 1 - ease);
   fx(cur, ease);
-  rings = rings.filter(g => g.a > 0.02);
-  for (const g of rings) {
-    g.c ||= cur.vis[rings.length % 2 ? 'c2' : 'c1'];
-    g.r += C * 0.025; g.a *= 0.95;
-    ctx.strokeStyle = hsl(g.c, g.a); ctx.lineWidth = C * 0.012;
-    ctx.beginPath(); ctx.arc(CX + C / 2, CY + C / 2, C * 0.5 + g.r, 0, 7); ctx.stroke();
-  }
   const uo = t - (p.total - p.O), ko = p.O ? Math.max(0, Math.min(1, uo / .45)) : 0; // 목록 페이지 전환 0→1
   if (prev) fg(prev, i - 1, p.tracks.length, t, 1 - ease, -ease);
   fg(cur, i, p.tracks.length, t, ease, 1 - ease);
