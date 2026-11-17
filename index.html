@@ -177,7 +177,7 @@ const fmt = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2,
 async function setCover(el, f) {
   try {
     const img = await createImageBitmap(f); // ImageBitmap은 캔버스를 오염시키지 않음 → 녹화 가능
-    el.data.vis = prep(img);
+    el.data.vis = prep(img); el.data.cover = f;
     const thumb = el.querySelector('canvas').getContext('2d');
     thumb.clearRect(0, 0, 152, 152); drawCoverFit(thumb, img, 0, 0, 152, 152);
   } catch { status(`${f.name}: 이미지를 읽을 수 없어요`, true); }
@@ -197,25 +197,31 @@ document.addEventListener('paste', e => {
   el ? setCover(el, f) : status('커버를 넣을 곡 카드를 먼저 클릭하고 붙여넣어 주세요', true);
 });
 
+async function loadAudio(el, f) {
+  status(`${f.name} 읽는 중…`);
+  try { el.data.buf = await ac.decodeAudioData(await f.arrayBuffer()); el.data.audio = f; }
+  catch { el.data.buf = null; return status(`${f.name}: 오디오를 읽을 수 없어요`, true); }
+  const name = f.name.replace(/\.[^.]+$/, ''), [a, t] = name.includes(' - ') ? name.split(' - ', 2) : ['', name];
+  if (!el.querySelector('.title').value) el.querySelector('.title').value = t.trim();
+  if (!el.querySelector('.artist').value) el.querySelector('.artist').value = a.trim();
+  refresh();
+}
+
 function addTrack() {
   const el = $('#tpl').content.firstElementChild.cloneNode(true);
   el.data = { buf: null, vis: EMPTY };
-  el.querySelector('.audio').onchange = async e => {
-    const f = e.target.files[0]; if (!f) return;
-    status(`${f.name} 읽는 중…`);
-    try { el.data.buf = await ac.decodeAudioData(await f.arrayBuffer()); }
-    catch { el.data.buf = null; return status(`${f.name}: 오디오를 읽을 수 없어요`, true); }
-    const name = f.name.replace(/\.[^.]+$/, ''), [a, t] = name.includes(' - ') ? name.split(' - ', 2) : ['', name];
-    if (!el.querySelector('.title').value) el.querySelector('.title').value = t.trim();
-    if (!el.querySelector('.artist').value) el.querySelector('.artist').value = a.trim();
-    refresh();
-  };
+  el.querySelector('.audio').onchange = e => e.target.files[0] && loadAudio(el, e.target.files[0]);
   el.querySelector('.cover').onchange = e => e.target.files[0] && setCover(el, e.target.files[0]);
-  el.querySelector('.solo').onclick = () => { const p = plan([el]); p.tracks.length ? play(p) : status(p.err, true); };
+  el.querySelector('.solo').onclick = e => { // 재생 중이면 정지 버튼으로 동작
+    if (live?.solo === el) return stop();
+    const p = plan([el]); if (!p.tracks.length) return status(p.err, true);
+    play(p); live.solo = el; e.target.textContent = '■ 정지';
+  };
   el.querySelector('.up').onclick = () => { el.previousElementSibling && el.parentNode.insertBefore(el, el.previousElementSibling); refresh(); };
   el.querySelector('.del').onclick = () => { el.remove(); refresh(); };
   $('#tracks').append(el);
   refresh();
+  return el;
 }
 
 // 카드들 → 타임라인. 곡 i는 S초에 시작해서 d초 동안 재생, 다음 곡과 F초 겹침
@@ -239,6 +245,7 @@ function plan(cards = [...$('#tracks').children]) {
 let idle = plan();
 function status(msg, warn) { $('#status').textContent = msg; $('#status').className = warn ? 'warn' : ''; }
 function refresh() {
+  save();
   idle = plan();
   if (idle.err) return status(idle.err, true);
   if (!idle.tracks.length) return status('곡을 추가해 주세요');
@@ -263,7 +270,7 @@ function play(p) {
   });
   live = { ...p, t0 };
 }
-function stop() { sources.forEach(s => { try { s.stop(); } catch {} }); sources = []; live = null; }
+function stop() { sources.forEach(s => { try { s.stop(); } catch {} }); sources = []; live = null; document.querySelectorAll('.solo').forEach(b => b.textContent = '▶ 이 구간만'); }
 $('#add').onclick = addTrack;
 $('#play').onclick = () => { const p = plan(); p.err || !p.tracks.length ? status(p.err || '곡을 추가해 주세요', true) : play(p); };
 $('#stop').onclick = () => { if (recorder) { recorder.cancelled = true; recorder.stop(); } stop(); };
@@ -457,7 +464,34 @@ function frame(now) {
     if (black > 0) { ctx.fillStyle = `rgba(0,0,0,${black})`; ctx.fillRect(0, 0, W, H); }
   }
 }
-addTrack();
+// ── 일시저장: 바뀔 때마다 브라우저(IndexedDB)에 저장 → 새로고침해도 이어서. 이 기기·이 브라우저에만 남음 ──
+const db = new Promise((ok, no) => { const r = indexedDB.open('shortform', 1); r.onupgradeneeded = () => r.result.createObjectStore('s'); r.onsuccess = () => ok(r.result); r.onerror = () => no(r.error); });
+const idb = (mode, f) => db.then(d => new Promise((ok, no) => { const r = f(d.transaction('s', mode).objectStore('s')); r.onsuccess = () => ok(r.result); r.onerror = () => no(r.error); }));
+let restoring = true, saveT;
+function save() {
+  if (restoring) return;
+  clearTimeout(saveT);
+  saveT = setTimeout(() => {
+    const tracks = [...$('#tracks').children].map(el => {
+      const q = c => el.querySelector(c).value;
+      return { audio: el.data.audio, cover: el.data.cover, title: q('.title'), artist: q('.artist'), start: q('.start'), end: q('.end') };
+    });
+    idb('readwrite', s => s.put({ series: $('#series').value, brand: $('#brand').value, fade: $('#fade').value, tracks }, 'draft'))
+      .catch(() => status('일시저장 실패 (저장 공간 부족?) · 새로고침하면 지워질 수 있어요', true));
+  }, 400);
+}
+(async () => {
+  const d = await idb('readonly', s => s.get('draft')).catch(() => null);
+  if (d?.tracks?.length) {
+    for (const k of ['series', 'brand', 'fade']) $('#' + k).value = d[k];
+    await Promise.all(d.tracks.map(t => {
+      const el = addTrack();
+      for (const k of ['title', 'artist', 'start', 'end']) el.querySelector('.' + k).value = t[k];
+      return Promise.all([t.audio && loadAudio(el, t.audio), t.cover && setCover(el, t.cover)]);
+    }));
+  } else addTrack();
+  restoring = false; refresh();
+})();
 requestAnimationFrame(frame);
 </script>
 </body>
