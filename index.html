@@ -55,6 +55,7 @@
   </div>
   <p class="hint">
     · 구간은 <b>1:12</b>나 <b>72</b>처럼 적어요. 끝을 비우면 곡 끝까지 써요.<br>
+    · <b>자동 음량 맞춤</b>: 선택한 구간을 기준으로 곡 사이 음량 차이를 줄여요. 미리듣기와 영상에 모두 적용돼요.<br>
     · mp3 파일 이름이 "가수 - 제목.mp3" 형식이면 제목과 가수가 자동으로 채워져요.<br>
     · 앨범 커버는 이미지를 복사한 뒤 곡 카드를 클릭하고 <b>⌘V</b>로 붙여넣어도 돼요.<br>
     · 영상은 실제 길이만큼 재생하면서 녹화돼요. <b>녹화가 끝날 때까지 이 탭을 화면에 띄워 두세요</b>. 다른 탭으로 가면 화면이 멈춰요. 핸드폰은 화면이 꺼지거나 다른 앱으로 가도 멈춰요.
@@ -170,6 +171,46 @@ function prep(img) {
 }
 const EMPTY = prep(null);
 
+// ── 자동 음량: 선택 구간의 유효 RMS를 맞추고 모든 곡에 같은 피크 여유 적용 ──
+// 무음이 평균을 낮추지 않게 100ms 블록 중 가장 큰 블록보다 20dB 이내만 사용.
+// 정식 LUFS 측정은 아니며, 곡의 강약은 유지하는 고정 게인 보정이다.
+const volumeCache = new WeakMap();
+function segmentVolume(buf, start, duration) {
+  const key = `${start}:${duration}`;
+  let cache = volumeCache.get(buf);
+  if (!cache) volumeCache.set(buf, cache = new Map());
+  if (cache.has(key)) return cache.get(key);
+  const from = Math.max(0, Math.floor(start * buf.sampleRate));
+  const end = Math.min(buf.length, Math.ceil((start + duration) * buf.sampleRate));
+  const channels = Array.from({length: buf.numberOfChannels}, (_, c) => buf.getChannelData(c));
+  const step = Math.max(1, Math.round(buf.sampleRate * .1)), blocks = [];
+  let peak = 0, maxEnergy = 0;
+  for (let i = from; i < end; i += step) {
+    const to = Math.min(end, i + step); let sum = 0;
+    for (const data of channels) for (let j = i; j < to; j++) {
+      const v = data[j]; sum += v * v; peak = Math.max(peak, Math.abs(v));
+    }
+    const count = (to - i) * channels.length, energy = sum / count;
+    blocks.push({sum, count, energy}); maxEnergy = Math.max(maxEnergy, energy);
+  }
+  let sum = 0, count = 0;
+  for (const b of blocks) if (b.energy > Math.max(1e-10, maxEnergy * .01)) { sum += b.sum; count += b.count; }
+  const result = {rms: count ? Math.sqrt(sum / count) : 0, peak};
+  cache.set(key, result); return result;
+}
+function matchVolume(tracks, outro) {
+  let safety = 1;
+  for (const [i, tr] of tracks.entries()) {
+    const {rms, peak} = segmentVolume(tr.buf, tr.start, tr.d + (i === tracks.length - 1 ? outro : 0));
+    // 목표 -18 dB RMS, 매우 작은 녹음의 잡음을 과하게 올리지 않도록 최대 +12 dB.
+    tr.gain = rms ? Math.min(4, Math.pow(10, -18 / 20) / rms) : 1;
+    if (peak) safety = Math.min(safety, Math.pow(10, -1 / 20) / (peak * tr.gain));
+  }
+  // 피크가 큰 곡이 있으면 전체를 함께 낮춰 곡 사이 음량 관계를 유지한다.
+  // 크로스페이드는 선형(두 게인의 합 ≤ 1)이므로 겹침도 이 여유 안에 들어간다.
+  for (const tr of tracks) tr.gain *= safety;
+}
+
 // ── 곡 카드 ──
 const parseT = s => { s = String(s).trim(); if (!s) return NaN; const p = s.split(':').map(Number); return p.length > 1 ? p[0] * 60 + p[1] : p[0]; };
 const fmt = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
@@ -231,7 +272,7 @@ function plan(cards = [...$('#tracks').children]) {
   cards.forEach((el, n) => {
     const { buf, vis } = el.data, q = c => el.querySelector(c).value;
     if (!buf) { err ||= `${n + 1}번 곡: mp3를 넣어 주세요`; return; }
-    const start = parseT(q('.start')) || 0;
+    const start = Math.max(0, parseT(q('.start')) || 0);
     const end = Math.min(buf.duration, parseT(q('.end')) || Infinity);
     const d = end - start;
     if (!(d > F * 2)) { err ||= `${n + 1}번 곡: 구간이 너무 짧아요 (크로스페이드의 2배 이상)`; return; }
@@ -239,6 +280,7 @@ function plan(cards = [...$('#tracks').children]) {
     S += d - F;
   });
   const last = tracks.at(-1), O = tracks.length > 1 ? 5 : 0; // 끝에 O초 동안 곡 목록 (곡 2개 이상일 때)
+  matchVolume(tracks, O);
   return { tracks, F, O, total: last ? last.S + last.d + O : 0, err };
 }
 
@@ -263,8 +305,8 @@ function play(p) {
     s.buffer = tr.buf; s.connect(g).connect(master);
     const len = Math.min(tr.buf.duration - tr.start, tr.d + (i === p.tracks.length - 1 ? p.O : 0)); // 마지막 곡은 목록 화면까지 이어서
     const a = t0 + tr.S, b = a + len, fin = i ? p.F : 0.3; // 첫 곡은 바로 들리게
-    g.gain.setValueAtTime(0, a); g.gain.linearRampToValueAtTime(1, a + fin);
-    g.gain.setValueAtTime(1, b - p.F); g.gain.linearRampToValueAtTime(0, b);
+    g.gain.setValueAtTime(0, a); g.gain.linearRampToValueAtTime(tr.gain, a + fin);
+    g.gain.setValueAtTime(tr.gain, b - p.F); g.gain.linearRampToValueAtTime(0, b);
     s.start(a, tr.start, len);
     sources.push(s);
   });
