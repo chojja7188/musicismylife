@@ -101,7 +101,6 @@ const master = ac.createGain();
 const analyser = ac.createAnalyser(); analyser.fftSize = 1024; analyser.smoothingTimeConstant = 0.5;
 const recDest = ac.createMediaStreamDestination();
 master.connect(analyser); master.connect(ac.destination); master.connect(recDest);
-const freq = new Uint8Array(analyser.frequencyBinCount);
 
 // ── 앨범 커버 → 대표색 2개 (dj/overlay.html과 같은 방식) ──
 function palette(img) {
@@ -411,7 +410,7 @@ function fitTitle(text, width, maxSize, minSize) {
   return {size, lines};
 }
 
-let rot = 0, spin = 0, out = 0, bassS = 0, bassAvg = 0, kick = 0, lastBeat = 0;
+let rot = 0, spin = 0, out = 0;
 
 function fg(tr, idx, count, t, a, slide) {
   if (a <= 0) return;
@@ -424,9 +423,8 @@ function fg(tr, idx, count, t, a, slide) {
   ctx.drawImage(v.vinyl, -C / 2, -C / 2);
   ctx.restore();
   ctx.save();
-  const s = 1 + bassS * 0.04 + kick * 0.04;
-  ctx.translate(CX + C / 2, CY + C / 2); ctx.scale(s, s);
-  ctx.shadowColor = hsl(v.c1, 0.25 + bassS * 0.5); ctx.shadowBlur = 20 + bassS * 90 + kick * 60;
+  ctx.translate(CX + C / 2, CY + C / 2);
+  ctx.shadowColor = 'rgba(0,0,0,.5)'; ctx.shadowBlur = 20;
   ctx.drawImage(v.cover, -C / 2, -C / 2);
   ctx.restore();
 
@@ -452,17 +450,14 @@ function fg(tr, idx, count, t, a, slide) {
   ctx.restore();
 }
 
-function fx(tr, a) { // 커버 뒤 글로우 + 스펙트럼 (곡 색깔로)
+function fx(tr, a) { // 스펙트럼 (곡 색깔로)
   if (a <= 0) return;
-  const v = tr.vis, cx = CX + C / 2, cy = CY + C / 2;
+  const v = tr.vis;
   ctx.save(); ctx.globalAlpha = a;
-  const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, C * (1.1 + bassS * 0.6));
-  glow.addColorStop(0, hsl(v.c1, 0.18 + bassS * 0.35 + kick * 0.2)); glow.addColorStop(1, hsl(v.c1, 0));
-  ctx.fillStyle = glow; ctx.fillRect(0, 0, W, H);
   const top = 1500, h = 280, mid = top + h / 2, bw = 840 / (N * 2);
   const grad = ctx.createLinearGradient(0, top, 0, top + h);
   grad.addColorStop(0, hsl(v.c2)); grad.addColorStop(0.5, hsl(v.c1)); grad.addColorStop(1, hsl(v.c2));
-  ctx.fillStyle = grad; ctx.shadowColor = hsl(v.c1, 0.8); ctx.shadowBlur = 8 + bassS * 20;
+  ctx.fillStyle = grad; ctx.shadowColor = hsl(v.c1, 0.8); ctx.shadowBlur = 8;
   for (let j = 0; j < N; j++) {
     const bh = Math.max(h * 0.03, Math.min(1, lvl[j]) * h / 2 * 0.92);
     for (const x of [W / 2 + j * bw, W / 2 - (j + 1) * bw]) ctx.fillRect(x + bw * 0.18, mid - bh, bw * 0.64, bh * 2);
@@ -506,12 +501,6 @@ function frame(now) {
   const t = playing ? ac.currentTime - live.t0 : 0;
   if (playing && t > live.total + 0.3 && !recorder) stop();
 
-  analyser.getByteFrequencyData(freq);
-  const v = i => Math.min(1, freq[i] / 255 * 1.3);
-  const bass = (v(1) + v(2) + v(3) + v(4)) / 4;
-  bassS += (bass - bassS) * 0.5; bassAvg += (bass - bassAvg) * 0.02;
-  if (bass > bassAvg * 1.25 + 0.06 && bass > 0.3 && now - lastBeat > 200) { lastBeat = now; kick = 1; }
-  kick *= 0.88;
   analyser.getFloatFrequencyData(spectrumDb);
   bands(i => spectrumDb[i]);
   spin += ((playing ? 1 : 0) - spin) * 0.03; out += (1 - out) * 0.06; rot += spin * 200 / 60;
