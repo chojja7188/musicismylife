@@ -356,13 +356,13 @@ function spectrumTarget(db, lo, hi) {
     const level = Math.max(0, Math.min(1, (db(k) + 72) / 60));
     energy += level * level;
   }
-  return Math.pow(Math.sqrt(energy / (hi - lo)), 1.8) * .9;
+  return Math.pow(Math.sqrt(energy / (hi - lo)), 1.5) * .9;
 }
 function bands(db) {
   for (let j = 0; j < N; j++) {
     const lo = Math.floor(2 + Math.pow(j / N, 1.7) * 220), hi = Math.floor(2 + Math.pow((j + 1) / N, 1.7) * 220) + 1;
     const target = spectrumTarget(db, lo, hi);
-    lvl[j] += (target - lvl[j]) * (target > lvl[j] ? .55 : .22);
+    lvl[j] += (target - lvl[j]) * (target > lvl[j] ? .7 : .22);
   }
 }
 function wrap(text, maxW, maxLines) { // 띄어쓰기 기준 줄바꿈, 넘치면 …

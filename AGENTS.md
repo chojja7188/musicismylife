@@ -56,4 +56,4 @@ frame(): ac.currentTime 기준으로 지금 곡·전환 비율 k 계산 → 캔�
 ## 튜닝 노브
 
 - 패널: 크로스페이드(초), 시리즈 제목, 계정 이름.
-- 코드: `C`/`CX`/`CY`(커버 크기·위치), 스펙트럼 `spectrumTarget()`(-72~-12 dB, 지수 1.8, 높이 .9), 비트·글로우 세기 `* 1.3`(frame의 `v`), `videoBitsPerSecond: 12e6`, `captureStream(30)`.
+- 코드: `C`/`CX`/`CY`(커버 크기·위치), 스펙트럼 `spectrumTarget()`(-72~-12 dB, 지수 1.5, 높이 .9), 비트·글로우 세기 `* 1.3`(frame의 `v`), `videoBitsPerSecond: 12e6`, `captureStream(30)`.

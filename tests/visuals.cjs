@@ -6,6 +6,8 @@ const code = html.match(/function spectrumTarget[\s\S]*?(?=function wrap)/)?.[0]
 assert.ok(code, '스펙트럼 반응 함수');
 const box={N:48,lvl:new Float32Array(48)}; vm.createContext(box); vm.runInContext(code,box);
 assert.equal(box.spectrumTarget(()=>-Infinity,2,8),0,'무음은 0');
+const middle=box.spectrumTarget(()=>-42,2,8);
+assert.ok(middle>.3 && middle<.36,'중간 세기 소리도 적당히 튀어야 함');
 const quiet=box.spectrumTarget(()=>-55,2,8), loud=box.spectrumTarget(()=>-25,2,8);
 assert.ok(quiet>0 && loud>quiet && loud<.7,'일반적인 큰 소리에도 여유');
 const isolated=box.spectrumTarget(i=>i===2 ? -12 : -72,2,12);
